@@ -128,7 +128,7 @@ void vApplicationStackOverflowHook(xTaskHandle xTask, char *pcTaskName)
   */
 void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
-
+	CreateGuiTask();
   /* USER CODE END Init */
 
   /* USER CODE BEGIN RTOS_MUTEX */

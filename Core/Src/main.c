@@ -47,6 +47,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "dashboard.h"
 #include "lvgl/lvgl.h"
 #include "lvgl/demos/lv_demos.h"
 #include "lvgl_port_touch.h"
@@ -162,6 +163,32 @@ int main(void)
   MX_FLASH_Init();
   /* USER CODE BEGIN 2 */
 
+  /* Setup CAN filter */
+  // Standard id filter (match all)
+  FDCAN_FilterTypeDef sFilterConfig = {
+      .IdType = FDCAN_STANDARD_ID,
+      .FilterIndex = 0,
+      .FilterType = FDCAN_FILTER_MASK,
+      .FilterConfig = FDCAN_FILTER_TO_RXFIFO0,
+      .FilterID1 = 0x000,
+      .FilterID2 = 0x000, // mask = 0 => match all
+  };
+  HAL_FDCAN_ConfigFilter(&hfdcan1, &sFilterConfig);
+
+  // Extended id filter (match all)
+  FDCAN_FilterTypeDef eFilterConfig = {
+      .IdType = FDCAN_EXTENDED_ID,
+      .FilterIndex = 1,
+      .FilterType = FDCAN_FILTER_MASK,
+      .FilterConfig = FDCAN_FILTER_TO_RXFIFO0,
+      .FilterID1 = 0x00000000,
+      .FilterID2 = 0x00000000, // match all
+  };
+  HAL_FDCAN_ConfigFilter(&hfdcan1, &eFilterConfig);
+
+  HAL_FDCAN_ActivateNotification(&hfdcan1, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0);
+  HAL_FDCAN_Start(&hfdcan1);
+
   /* reset display */
   HAL_GPIO_WritePin(LCD_DISP_RESET_GPIO_Port, LCD_DISP_RESET_Pin, GPIO_PIN_SET);
 
@@ -172,14 +199,17 @@ int main(void)
   lvgl_display_init();
   lvgl_touchscreen_init();
 
-  /* lvgl demo */
-  lv_demo_widgets();
+  /* create dashboard UI */
+  create_dash_board();
+
 
   /* USER CODE END 2 */
 
   /* Init scheduler */
   osKernelInitialize();  /* Call init function for freertos objects (in freertos.c) */
   MX_FREERTOS_Init();
+
+
 
   /* Start scheduler */
   osKernelStart();
