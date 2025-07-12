@@ -200,7 +200,7 @@ int main(void)
   lvgl_touchscreen_init();
 
   /* create dashboard UI */
-  create_dash_board();
+  initialize_dashboard();
 
 
   /* USER CODE END 2 */
