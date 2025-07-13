@@ -9,10 +9,15 @@
 
 #define LOGO_TIME 350 //time to show logo before switching to pre-drive state
 
-#define LVGS_GREEN "009632"
-#define LVGS_YELLOW "c8c800"
-#define LVGS_RED "b40000"
-#define LVGS_BLACK "000000"
+#define LVGL_GREEN "009632"
+#define LVGL_YELLOW "c8c800"
+#define LVGL_RED "ff0000"
+#define LVGL_BLACK "000000"
+#define LVGL_WHITE "ffffff"
+
+#define GREEN_HEX 0x009632
+#define YELLOW_HEX 0xc8c800
+#define RED_HEX 0xff0000
 
 static uint32_t time_count = 0;
 
@@ -24,15 +29,26 @@ lv_obj_t* pre_drive_grid;
 lv_obj_t* pre_drive_labels[4];
 
 //persistent lv_objs for drive state
+lv_obj_t* drive_grid;
+lv_obj_t* rpm_arc;
+lv_obj_t* rpm_arc_label;
+lv_obj_t* current_arc;
+lv_obj_t* current_arc_label;
+lv_obj_t* battery_temp_label;
+lv_obj_t* battery_soc_bar;
+lv_obj_t* battery_soc_label;
+lv_obj_t* inverter_temp_label;
+lv_obj_t* motor_temp_label;
 
 //persistent lv_objs for diagnostic state
 lv_obj_t* diagnostic_label;
 
 typedef enum {
-	LOGO = 0,
-	PRE_DRIVE = 1,
-	DRIVE = 2,
-	DIAGNOSTIC = 3
+	UNINITIALIZED = 0,
+	LOGO = 1,
+	PRE_DRIVE = 2,
+	DRIVE = 3,
+	DIAGNOSTIC = 4
 } display_state_t;
 
 typedef enum {
@@ -71,6 +87,8 @@ typedef struct
 	statusword_t statusword;
 	float capacitor_voltage;
 	bool active;
+	int16_t temperature;
+	int16_t motor_temp;
 }inv_t;
 
 typedef struct
@@ -79,6 +97,7 @@ typedef struct
 	uint8_t temperature;
 	float pack_voltage;
 	uint8_t pack_soc;
+	float pack_current;
 	bool active;
 }battery_t;
 
@@ -102,7 +121,7 @@ battery_t battery = {};
 
 vcu_t vcu = {};
 
-static display_state_t current_display_state = LOGO;
+static display_state_t current_display_state = UNINITIALIZED;
 static display_state_t commanded_display_state = LOGO;
 
 void update_inverter(lv_obj_t* label, inv_t* inv);
@@ -126,12 +145,6 @@ void update_display_state(display_state_t display_state);
 	void update_display_state_pre_drive(void);
 	void update_display_state_drive(void);
 	void update_display_state_diagnostic(void);
-
-/* Create the dashboard UI structure */
-void initialize_dashboard(void)
-{
-	initialize_display_state(LOGO);
-}
 
 static void GuiTask(void *pvParameters)
 {
@@ -165,7 +178,7 @@ static void GuiTask(void *pvParameters)
         	current_display_state = commanded_display_state;
         }
 
-        if ((time_count % 75) == 0)
+        if ((time_count % 20) == 0 && !init_screen)
         {            // since loop ticks every 10 ms
 			update_display_state(current_display_state);
         }
@@ -184,7 +197,7 @@ void CreateGuiTask(void)
     osThreadNew(GuiTask, NULL, &(osThreadAttr_t){
         .name = "gui",
         .priority = osPriorityNormal,
-        .stack_size = 1024
+        .stack_size = 1024 * 4
     });
 
 }
@@ -249,12 +262,16 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 			    // Inverter 1 HS3
 				// Measured capacitor voltage (measured battery voltage)
 				inv1.capacitor_voltage = ((rxData[4]) | (rxData[5] << 8))/16;
+				inv1.temperature = ((rxData[0]) | (rxData[1] << 8));
+				inv1.motor_temp = (rxData[2] | rxData[3] << 8);
 
 				break;
 			case 0x11aff72:
 				// Inverter 2 HS3
 				// Measured capacitor voltage (measured battery voltage)
 				inv2.capacitor_voltage = ((rxData[4]) | (rxData[5] << 8))/16;
+				inv2.temperature = ((rxData[0]) | (rxData[1] << 8));
+				inv2.motor_temp = (rxData[2] | rxData[3] << 8);
 
 				break;
 
@@ -276,6 +293,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 			case 0x6B0:
 				battery.pack_soc = rxData[4];
 				battery.pack_voltage = (((uint16_t)rxData[2] << 8) | rxData[3]) * 0.1f;
+				battery.pack_current = (((uint16_t)rxData[0] << 8) | rxData[1]) * 0.1f;
 
 				break;
 
@@ -352,8 +370,133 @@ void update_display_state(display_state_t display_state)
 		}
 }
 
+lv_obj_t* generate_grid(bool border)
+{
+	lv_obj_t* grid = lv_obj_create(lv_scr_act());; // make use of the additional variable so I don't have to change chatgpt's code
+	lv_obj_clear_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
+	lv_obj_set_size(grid, 800, 480);
+	lv_obj_center(grid); // Optional: center the grid on the screen
+
+	// Enable grid layout
+	static lv_coord_t col_dsc[] = {400, 400, LV_GRID_TEMPLATE_LAST};
+	static lv_coord_t row_dsc[] = {240, 240, LV_GRID_TEMPLATE_LAST};
+
+	lv_obj_set_layout(grid, LV_LAYOUT_GRID);
+	lv_obj_set_grid_dsc_array(grid, col_dsc, row_dsc);
+	lv_obj_set_style_pad_all(grid, 0, 0);
+	lv_obj_set_style_pad_row(grid, 0, 0);
+	lv_obj_set_style_pad_column(grid, 0, 0);
+	lv_obj_set_style_bg_color(grid, lv_color_black(), 0);
+	lv_obj_set_style_bg_opa(grid, LV_OPA_COVER, 0);
+	if(border)
+	{
+		lv_obj_set_style_border_color(grid, lv_color_make(0x64,0x64,0x64), 0);
+		lv_obj_set_style_border_width(grid, 2, 0);
+	}
+	else
+	{
+		lv_obj_set_style_border_color(grid, lv_color_black(), 0);
+		lv_obj_set_style_border_width(grid, 2, 0);
+	}
+
+	return grid;
+}
+
+void generate_style(lv_style_t* style_label, const lv_font_t* font, bool border, bool center_align)
+{
+	lv_style_init(style_label);
+	lv_style_set_text_color(style_label, lv_color_white());
+	lv_style_set_bg_color(style_label, lv_color_black());
+	lv_style_set_bg_opa(style_label, LV_OPA_COVER);
+	if(border){
+		lv_style_set_border_color(style_label, lv_color_make(0x64,0x64,0x64));
+		lv_style_set_border_width(style_label, 2);
+	}
+	else
+	{
+		lv_style_set_border_color(style_label, lv_color_black());
+		lv_style_set_border_width(style_label, 2);
+	}
+	if(center_align)
+	{
+		lv_style_set_text_align(style_label, LV_TEXT_ALIGN_CENTER);
+		lv_style_set_align(style_label, LV_ALIGN_CENTER);
+	}
+	else
+	{
+		lv_style_set_text_align(style_label, LV_TEXT_ALIGN_LEFT);
+		lv_style_set_align(style_label, LV_ALIGN_TOP_LEFT);
+	}
+	lv_style_set_pad_left(style_label, 5); // padding for left alignment
+    lv_style_set_text_font(style_label, font);
+}
+
+lv_obj_t* generate_arc(lv_obj_t* parent, int value, int range)
+{
+	lv_obj_t* arc = lv_arc_create(parent);
+
+	// Set arc size
+	lv_obj_set_size(arc, 200, 200);  // Adjust as needed
+
+	// Configure arc properties
+	lv_arc_set_range(arc, 0, range);
+	lv_arc_set_value(arc, value);  // Set to your desired value
+	lv_arc_set_bg_angles(arc, 0, 270);
+
+	// Make arc non-clickable and static
+	lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
+	lv_arc_set_mode(arc, LV_ARC_MODE_NORMAL);  // Or SYMMETRICAL/REVERSE
+	lv_arc_set_rotation(arc, 135);  // Optional: rotate to top
+	lv_obj_set_style_arc_color(arc, lv_color_hex(0x646464), LV_PART_MAIN);
+
+	// Hide the knob
+	lv_obj_set_style_pad_all(arc, 0, 0);  // Just in case
+	lv_obj_set_style_arc_width(arc, 6, LV_PART_INDICATOR);  // Adjust thickness
+	lv_obj_set_style_bg_opa(arc, LV_OPA_TRANSP, LV_PART_KNOB);  // Hides knob
+
+	return arc;
+}
+
+lv_obj_t* generate_arc_label(lv_obj_t* parent, const char* units_str)
+{
+	// Create a container inside the arc to hold labels
+	lv_obj_t *label_container = lv_obj_create(parent);
+	lv_obj_set_size(label_container, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+	lv_obj_center(label_container);  // Center the whole label group in the arc
+
+	// Use vertical flex layout to stack labels
+	lv_obj_set_flex_flow(label_container, LV_FLEX_FLOW_COLUMN);
+	lv_obj_set_style_bg_opa(label_container, LV_OPA_TRANSP, 0);  // Transparent
+	lv_obj_set_style_pad_all(label_container, 0, 0);
+	lv_obj_clear_flag(label_container, LV_OBJ_FLAG_SCROLLABLE);
+	lv_obj_set_style_border_width(label_container, 0, 0);
+	lv_obj_set_style_border_opa(label_container, LV_OPA_TRANSP, 0);
+
+	// Align items to center vertically (main axis)
+	lv_obj_set_style_flex_main_place(label_container, LV_FLEX_ALIGN_CENTER, 0);
+	lv_obj_set_style_flex_cross_place(label_container, LV_FLEX_ALIGN_CENTER, 0);
+
+	// Value label
+	lv_obj_t *arc_label = lv_label_create(label_container);
+	lv_label_set_text_fmt(arc_label, "%d", lv_arc_get_value(parent));
+	lv_obj_set_style_text_color(arc_label, lv_color_white(), 0);
+	lv_obj_set_style_text_font(arc_label, &lv_font_montserrat_48, 0);
+
+	// Sub-label
+	lv_obj_t *arc_sub_label = lv_label_create(label_container);
+	lv_label_set_text(arc_sub_label, units_str);
+	lv_obj_set_style_text_color(arc_sub_label, lv_color_white(), 0);
+	lv_obj_set_style_text_font(arc_sub_label, &lv_font_montserrat_24, 0);
+
+	return arc_label;
+}
+
 void initialize_display_state_logo(void)
 {
+	lv_obj_set_style_bg_color(lv_scr_act(), lv_color_white(), 0);
+	lv_obj_set_style_bg_opa(lv_scr_act(), LV_OPA_COVER, 0);  // Ensure it's not transparent
+	lv_obj_clear_flag(lv_scr_act(), LV_OBJ_FLAG_SCROLLABLE);
+
 	our_logo = lv_img_create(lv_scr_act());   // Create image object
 	lv_img_set_src(our_logo, &our_logo_screenshot);                // Set image source
 	lv_img_set_zoom(our_logo, 450);
@@ -369,30 +512,31 @@ void update_display_state_logo(void){/*do nothing*/}
 
 void initialize_display_state_pre_drive(void)
 {
+	lv_obj_set_style_bg_color(lv_scr_act(), lv_color_black(), 0);
+	lv_obj_set_style_bg_opa(lv_scr_act(), LV_OPA_COVER, 0);  // Ensure it's not transparent
+	lv_obj_clear_flag(lv_scr_act(), LV_OBJ_FLAG_SCROLLABLE);
+
 	// Create a container for the grid
-	pre_drive_grid = lv_obj_create(lv_scr_act());
+	pre_drive_grid = generate_grid(true);
 
-	lv_obj_t* grid = pre_drive_grid; // make use of the additional variable so I don't have to change chatgpt's code
-	lv_obj_set_size(grid, 800, 420);
-	lv_obj_center(grid); // Optional: center the grid on the screen
+	static lv_style_t style_label;
+	generate_style(&style_label,&lv_font_montserrat_30,true,false);
 
-	// Enable grid layout
-	static lv_coord_t col_dsc[] = {400, 400, LV_GRID_TEMPLATE_LAST};
-	static lv_coord_t row_dsc[] = {210, 210, LV_GRID_TEMPLATE_LAST};
-
-	lv_obj_set_layout(grid, LV_LAYOUT_GRID);
-	lv_obj_set_grid_dsc_array(grid, col_dsc, row_dsc);
+    static lv_style_t style_label_small;
+    generate_style(&style_label_small,&lv_font_montserrat_24,true,false);
 
 	// Helper function to create a label in a grid cell
 	for (int row = 0; row < 2; row++) {
 	    for (int col = 0; col < 2; col++) {
-	        lv_obj_t *label = lv_label_create(grid);
+	        lv_obj_t *label = lv_label_create(pre_drive_grid);
 	        lv_label_set_recolor(label,true);
+	        if(row == 0 && col == 0) lv_obj_add_style(label, &style_label, 0);
+	        else lv_obj_add_style(label, &style_label_small, 0);
 	        pre_drive_labels[2*row + col] = label;
 
 	        // Set label to occupy one cell
-	        lv_obj_set_grid_cell(label, LV_GRID_ALIGN_CENTER, col, 1,
-	                                       LV_GRID_ALIGN_CENTER, row, 1);
+	        lv_obj_set_grid_cell(label, LV_GRID_ALIGN_STRETCH, col, 1,
+	                                       LV_GRID_ALIGN_STRETCH, row, 1);
 	    }
 	}
 
@@ -405,20 +549,20 @@ void clear_display_state_pre_drive(void)
 
 void update_display_state_pre_drive()
 {
-	const char* lv_battery_color_state = vcu.lv_voltage >= 12.7 ? LVGS_GREEN : LVGS_YELLOW;
-	const char* rtd_color_state = vcu.rtd_switch_state && time_count % 150 >= 75 ? LVGS_RED : LVGS_BLACK;
+	const char* lv_battery_color_state = vcu.lv_voltage >= 12.7 ? LVGL_GREEN : LVGL_YELLOW;
+	const char* rtd_color_state = vcu.rtd_switch_state && time_count % 80 >= 40 ? LVGL_RED : LVGL_WHITE;
 	const char* rtd_state_string = vcu.rtd_switch_state ? "ON" : "OFF";
 
 	lv_label_set_text_fmt(pre_drive_labels[0],
-			"LV Batt: #%s %.1f%V#\n"
+			"LV Batt: #%s %.1f V#\n"
 			"RTD Switch: #%s %s#",
 			lv_battery_color_state,vcu.lv_voltage,rtd_color_state,rtd_state_string);
 
 	lv_label_set_text_fmt(pre_drive_labels[2],
-			"HV Battery Pack\n"
-			"Temperature: %d C\n"
+			"TS Battery Pack\n"
+			"Temperature: %d °C\n"
 			"SOC: %d%%\n"
-			"Pack Voltage: %.2f"
+			"Pack Voltage: %.2f\n"
 			"Pack DCL: %d A",
 			battery.temperature,battery.pack_voltage,battery.pack_soc,battery.pack_dcl);
 
@@ -441,24 +585,224 @@ void update_display_state_pre_drive()
 
 void initialize_display_state_drive(void)
 {
+	lv_obj_set_style_bg_color(lv_scr_act(), lv_color_black(), 0);
+	lv_obj_set_style_bg_opa(lv_scr_act(), LV_OPA_COVER, 0);  // Ensure it's not transparent
+	lv_obj_clear_flag(lv_scr_act(), LV_OBJ_FLAG_SCROLLABLE);
 
+	drive_grid = generate_grid(false);
+
+	rpm_arc = generate_arc(drive_grid,0,60);
+
+	// Align it to the center of the cell
+	int row = 1;
+	int col = 0;
+	lv_obj_set_grid_cell(rpm_arc,
+	    LV_GRID_ALIGN_CENTER, col, 1,
+	    LV_GRID_ALIGN_CENTER, row, 1);
+
+	rpm_arc_label = generate_arc_label(rpm_arc,"mph");
+
+	current_arc = generate_arc(drive_grid,0,battery.pack_dcl);
+
+	// Align it to the center of the cell
+	row = 1;
+	col = 1;
+	lv_obj_set_grid_cell(current_arc,
+	    LV_GRID_ALIGN_CENTER, col, 1,
+	    LV_GRID_ALIGN_CENTER, row, 1);
+
+	current_arc_label = generate_arc_label(current_arc,"A");
+
+	// Create a container to hold battery info
+	lv_obj_t *battery_container = lv_obj_create(drive_grid);
+	lv_obj_set_size(battery_container, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+	lv_obj_center(battery_container);  // Center the whole label group in the arc
+
+	// Use vertical flex layout to stack labels
+	lv_obj_set_flex_flow(battery_container, LV_FLEX_FLOW_COLUMN);
+	lv_obj_set_style_bg_opa(battery_container, LV_OPA_TRANSP, 0);  // Transparent
+	lv_obj_set_style_pad_all(battery_container, 0, 0);
+	lv_obj_clear_flag(battery_container, LV_OBJ_FLAG_SCROLLABLE);
+	lv_obj_set_style_border_width(battery_container, 0, 0);
+	lv_obj_set_style_border_opa(battery_container, LV_OPA_TRANSP, 0);
+
+	//add battery text label
+	static lv_style_t text_style;
+	generate_style(&text_style,&lv_font_montserrat_24,false,false);
+	lv_obj_t* battery_text_label = lv_label_create(battery_container);
+	lv_obj_add_style(battery_text_label, &text_style, 0);
+	lv_label_set_text(battery_text_label,"TS Battery");
+
+	//add battery temperature label
+	static lv_style_t battery_temp_style;
+	generate_style(&battery_temp_style,&lv_font_montserrat_48,false,true);
+	battery_temp_label = lv_label_create(battery_container);
+	lv_obj_add_style(battery_temp_label,&battery_temp_style,0);
+	lv_label_set_recolor(battery_temp_label,true);
+
+	//add soc text label
+	battery_soc_label = lv_label_create(battery_container);
+	lv_obj_add_style(battery_soc_label, &text_style, 0);
+	lv_label_set_text(battery_soc_label,"SOC: 0\%");
+
+	//add battery SOC bar
+	battery_soc_bar = lv_bar_create(battery_container);
+	lv_obj_set_size(battery_soc_bar, 250, 15);
+	lv_obj_center(battery_soc_bar);
+	lv_bar_set_value(battery_soc_bar, 0, LV_ANIM_OFF);
+
+	lv_obj_set_style_bg_color(battery_soc_bar, lv_color_hex(0x646464), LV_PART_MAIN);     // background
+	lv_obj_set_style_bg_color(battery_soc_bar, lv_color_hex(0x009632), LV_PART_INDICATOR);  // fill
+	lv_obj_set_style_radius(battery_soc_bar, 5, 0);
+
+	lv_obj_clear_flag(battery_soc_bar, LV_OBJ_FLAG_CLICKABLE);
+
+	// Align it to the center of the cell
+	row = 0;
+	col = 0;
+	lv_obj_set_grid_cell(battery_container,
+	    LV_GRID_ALIGN_CENTER, col, 1,
+	    LV_GRID_ALIGN_CENTER, row, 1);
+
+	// Create a container to hold inverter info
+	lv_obj_t *inverter_container = lv_obj_create(drive_grid);
+	lv_obj_set_size(inverter_container, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+	lv_obj_center(inverter_container);  // Center the whole label group in the arc
+
+	// Use vertical flex layout to stack labels
+	lv_obj_set_flex_flow(inverter_container, LV_FLEX_FLOW_COLUMN);
+	lv_obj_set_style_bg_opa(inverter_container, LV_OPA_TRANSP, 0);  // Transparent
+	lv_obj_set_style_pad_all(inverter_container, 0, 0);
+	lv_obj_clear_flag(inverter_container, LV_OBJ_FLAG_SCROLLABLE);
+	lv_obj_set_style_border_width(inverter_container, 0, 0);
+	lv_obj_set_style_border_opa(inverter_container, LV_OPA_TRANSP, 0);
+
+	//add inverter text label
+	lv_obj_t* inverter_text_label = lv_label_create(inverter_container);
+	lv_obj_add_style(inverter_text_label, &text_style, 0);
+	lv_label_set_text(inverter_text_label,"Inverters");
+
+	//add inverter temperature label
+	static lv_style_t inverter_temp_style;
+	generate_style(&inverter_temp_style,&lv_font_montserrat_36,false,true);
+	inverter_temp_label = lv_label_create(inverter_container);
+	lv_obj_add_style(inverter_temp_label,&inverter_temp_style,0);
+	lv_label_set_recolor(inverter_temp_label,true);
+
+	//add motor text label
+	lv_obj_t* motor_text_label = lv_label_create(inverter_container);
+	lv_obj_add_style(motor_text_label, &text_style, 0);
+	lv_label_set_text(motor_text_label,"Motors");
+
+	//add motor temperature label
+	motor_temp_label = lv_label_create(inverter_container);
+	lv_obj_add_style(motor_temp_label,&inverter_temp_style,0);
+	lv_label_set_recolor(motor_temp_label,true);
+
+	// Align it to the center of the cell
+	row = 0;
+	col = 1;
+	lv_obj_set_grid_cell(inverter_container,
+	    LV_GRID_ALIGN_CENTER, col, 1,
+	    LV_GRID_ALIGN_CENTER, row, 1);
 }
 
 void clear_display_state_drive(void)
 {
+	lv_obj_del(drive_grid);
+}
 
+int green_yellow_red_range(int value, int greenThreshold, int yellowThreshold, int redThreshold)
+{
+	if(value >= greenThreshold) return 3;
+	else if(value >= yellowThreshold) return 2;
+	else if(value >= redThreshold) return 1;
+
+	return 0;
+}
+
+int red_yellow_green_range(int value, int greenThreshold, int yellowThreshold, int redThreshold)
+{
+	if(value <= greenThreshold) return 3;
+	else if(value <= yellowThreshold) return 2;
+	else if(value <= redThreshold) return 1;
+
+	return 0;
 }
 
 void update_display_state_drive()
 {
+	//battery temperature
+	const char* battery_temp_color;
+	switch(red_yellow_green_range(battery.temperature,35,45,70))
+	{
+		case 3:
+			battery_temp_color = LVGL_GREEN;
+			break;
+		case 2:
+			battery_temp_color = LVGL_YELLOW;
+			break;
+		case 1:
+			battery_temp_color = LVGL_RED;
+			break;
+		default:
+			battery_temp_color = LVGL_WHITE;
+	}
+	lv_label_set_text_fmt(battery_temp_label,"#%s %d °C#",battery_temp_color,battery.temperature);
 
+	//battery SOC
+	uint32_t battery_soc_color;
+	switch(green_yellow_red_range(battery.pack_soc,50,20,0))
+	{
+		case 3:
+			battery_soc_color = GREEN_HEX;
+			break;
+		case 2:
+			battery_soc_color = YELLOW_HEX;
+			break;
+		case 1:
+			battery_soc_color = RED_HEX;
+			break;
+		default:
+			battery_soc_color = 0xffffff;
+			break;
+	}
+	lv_label_set_text_fmt(battery_soc_label,"SOC: %d%%",battery.pack_soc);
+	lv_bar_set_value(battery_soc_bar, battery.pack_soc, LV_ANIM_OFF);
+	lv_obj_set_style_bg_color(battery_soc_bar, lv_color_hex(battery_soc_color), LV_PART_INDICATOR);
+
+	//inverter temperatures
+	lv_label_set_text_fmt(inverter_temp_label,"#%s %d °C#\t#646464 |#\t#%s %d °C#",
+			LVGL_GREEN,inv1.temperature,LVGL_GREEN,inv2.temperature);
+
+	//motor temperatures
+	lv_label_set_text_fmt(motor_temp_label,"#%s %d °C#\t#646464 |#\t#%s %d °C#",
+			LVGL_GREEN,inv1.motor_temp,LVGL_GREEN,inv2.motor_temp);
+
+	//rpm
+	int mph = (inv1.motor_speed + inv2.motor_speed) * 0.02975f / 5.0f;
+	lv_arc_set_value(rpm_arc,mph);
+	lv_label_set_text_fmt(rpm_arc_label,"%d",mph);
+
+	//current
+	lv_arc_set_value(current_arc,(int)battery.pack_current);
+	lv_label_set_text_fmt(current_arc_label,"%d",(int)battery.pack_current);
 }
 
 void initialize_display_state_diagnostic(void)
 {
+	lv_obj_set_style_bg_color(lv_scr_act(), lv_color_black(), 0);
+	lv_obj_set_style_bg_opa(lv_scr_act(), LV_OPA_COVER, 0);  // Ensure it's not transparent
+	lv_obj_clear_flag(lv_scr_act(), LV_OBJ_FLAG_SCROLLABLE);
+
 	diagnostic_label = lv_label_create(lv_scr_act());
-	lv_obj_set_size(diagnostic_label,800,420);
+	lv_obj_set_size(diagnostic_label,800,480);
 	lv_obj_center(diagnostic_label);
+
+	static lv_style_t style_label;
+	generate_style(&style_label,&lv_font_montserrat_30,false,false);
+
+	lv_obj_add_style(diagnostic_label, &style_label, 0);
 }
 
 void clear_display_state_diagnostic(void)

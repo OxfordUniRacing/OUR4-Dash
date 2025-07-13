@@ -70,6 +70,7 @@ disp_flush (lv_disp_drv_t   *drv,
             const lv_area_t *area,
             lv_color_t      *color_p)
 {
+
   lv_coord_t width = lv_area_get_width(area);
   lv_coord_t height = lv_area_get_height(area);
 
@@ -85,6 +86,7 @@ disp_flush (lv_disp_drv_t   *drv,
   DMA2D->IFCR = 0x3FU;
   DMA2D->CR |= DMA2D_CR_TCIE;
   DMA2D->CR |= DMA2D_CR_START;
+
 }
 
 static void

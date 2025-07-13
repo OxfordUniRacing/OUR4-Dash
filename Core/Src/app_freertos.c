@@ -25,6 +25,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "lvgl/lvgl.h"
+#include "dashboard.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -128,6 +129,7 @@ void vApplicationStackOverflowHook(xTaskHandle xTask, char *pcTaskName)
   */
 void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
+	lvglTickHandle = osThreadNew(LVGLTick, NULL, &lvglTick_attributes);
 	CreateGuiTask();
   /* USER CODE END Init */
 
@@ -147,12 +149,12 @@ void MX_FREERTOS_Init(void) {
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
   /* creation of defaultTask */
-  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+  //defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
-  lvglTickHandle = osThreadNew(LVGLTick, NULL, &lvglTick_attributes);
-  lvglTimerHandle = osThreadNew(LVGLTimer, NULL, &lvglTimer_attributes);
+
+  //lvglTimerHandle = osThreadNew(LVGLTimer, NULL, &lvglTimer_attributes);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -167,16 +169,6 @@ void MX_FREERTOS_Init(void) {
 * @retval None
 */
 /* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void *argument)
-{
-  /* USER CODE BEGIN defaultTask */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
-  /* USER CODE END defaultTask */
-}
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
@@ -186,7 +178,7 @@ void LVGLTimer(void *argument)
   for(;;)
   {
     lv_timer_handler();
-    //osDelay(20);
+    osDelay(20);
   }
 }
 /* LVGL tick source */
@@ -194,8 +186,8 @@ void LVGLTick(void *argument)
 {
   for(;;)
   {
-    lv_tick_inc(10);
-    osDelay(10);
+    lv_tick_inc(1);
+    osDelay(1);
   }
 }
 /* USER CODE END Application */

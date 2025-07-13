@@ -660,9 +660,6 @@ g_pfnVectors:
 	.weak	LPDMA1_Channel3_IRQHandler
 	.thumb_set LPDMA1_Channel3_IRQHandler,Default_Handler
 
-	.weak	DMA2D_IRQHandler
-	.thumb_set DMA2D_IRQHandler,Default_Handler
-
 	.weak	DCMI_PSSI_IRQHandler
 	.thumb_set DCMI_PSSI_IRQHandler,Default_Handler
 
