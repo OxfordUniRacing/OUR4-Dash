@@ -185,7 +185,7 @@ static void GuiTask(void *pvParameters)
 
         time_count++;
 
-		vcu.active = (vcu.last_comm_time - time_count) <= 50;
+		vcu.active = (time_count - vcu.last_comm_time) <= 50;
 
         osDelay(xDelay);
     }
