@@ -562,9 +562,9 @@ void update_display_state_pre_drive()
 			"TS Battery Pack\n"
 			"Temperature: %d °C\n"
 			"SOC: %d%%\n"
-			"Pack Voltage: %.2f\n"
+			"Pack Voltage: %.1f\n"
 			"Pack DCL: %d A",
-			battery.temperature,battery.pack_voltage,battery.pack_soc,battery.pack_dcl);
+			battery.temperature,battery.pack_soc,battery.pack_voltage,battery.pack_dcl);
 
 	lv_label_set_text_fmt(pre_drive_labels[1],
 			"Inverters\n"
