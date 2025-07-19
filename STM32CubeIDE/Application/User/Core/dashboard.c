@@ -19,6 +19,8 @@
 #define YELLOW_HEX 0xc8c800
 #define RED_HEX 0xff0000
 
+#define INVERTER_CUTOFF_TEMP 85
+
 static uint32_t time_count = 0;
 
 //persistent lv_objs for logo state
@@ -262,7 +264,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 			    // Inverter 1 HS3
 				// Measured capacitor voltage (measured battery voltage)
 				inv1.capacitor_voltage = ((rxData[4]) | (rxData[5] << 8))/16;
-				inv1.temperature = ((rxData[0]) | (rxData[1] << 8));
+				inv1.temperature = INVERTER_CUTOFF_TEMP - ((rxData[0]) | (rxData[1] << 8));
 				inv1.motor_temp = (rxData[2] | rxData[3] << 8);
 
 				break;
@@ -270,7 +272,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 				// Inverter 2 HS3
 				// Measured capacitor voltage (measured battery voltage)
 				inv2.capacitor_voltage = ((rxData[4]) | (rxData[5] << 8))/16;
-				inv2.temperature = ((rxData[0]) | (rxData[1] << 8));
+				inv2.temperature = INVERTER_CUTOFF_TEMP - ((rxData[0]) | (rxData[1] << 8));
 				inv2.motor_temp = (rxData[2] | rxData[3] << 8);
 
 				break;
